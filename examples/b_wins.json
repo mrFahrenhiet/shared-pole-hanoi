@@ -1,9 +1,0 @@
-{
-  "n": 1,
-  "turn_order": ["A", "B", "B"],
-  "moves": [
-    {"kind": "lift", "pole": "1a"},
-    {"kind": "lift", "pole": "1b"},
-    {"kind": "place", "pole": "3b"}
-  ]
-}

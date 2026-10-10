@@ -6,3 +6,6 @@ __pycache__
 .hypothesis
 .env
 benchmark.jsonl
+examples/*
+!examples/example.json
+*.jsonl

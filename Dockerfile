@@ -18,5 +18,5 @@ CMD ["--help"]
 FROM runtime AS test
 RUN uv sync --locked
 COPY tests ./tests
-COPY examples ./examples
+COPY examples/example.json ./examples/example.json
 ENTRYPOINT ["uv", "run", "--locked", "--no-sync", "python", "-m", "pytest"]

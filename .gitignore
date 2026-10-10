@@ -4,3 +4,7 @@ __pycache__/
 .hypothesis/
 .env
 benchmark.jsonl
+# Keep one public input example; all other recordings/output are local artifacts.
+examples/*
+!examples/example.json
+*.jsonl

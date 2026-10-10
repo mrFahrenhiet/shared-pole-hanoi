@@ -1,9 +1,23 @@
 {
-  "n": "1",
-  "turn_order": ["A", "B", "A"],
-  "moves": [
-    {"kind": "lift", "pole": "1a"},
-    {"kind": "lift", "pole": "1b"},
-    {"kind": "place", "pole": "3a"}
+  "jobs": [
+    {
+      "mode": "random-play",
+      "n": [1, "3.00", 5],
+      "games": 2,
+      "seed": 42,
+      "max_turns": 1000
+    },
+    {
+      "mode": "replay",
+      "recording": {
+        "n": 1,
+        "turn_order": ["A", "B", "A"],
+        "moves": [
+          {"kind": "lift", "pole": "1a"},
+          {"kind": "lift", "pole": "1b"},
+          {"kind": "place", "pole": "3a"}
+        ]
+      }
+    }
   ]
 }
