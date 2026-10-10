@@ -1,0 +1,13 @@
+[project]
+name = "shared-pole-hanoi"
+version = "0.1.0"
+description = "Immutable shared-pole Hanoi engine and replay/random CLI"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8.4,<10", "hypothesis>=6.142,<7"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

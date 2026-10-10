@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    environment: &settings
+      HANOI_MAX_N: ${HANOI_MAX_N:-10}
+      HANOI_MOVES_FACTOR: ${HANOI_MOVES_FACTOR:-1000}
+      HANOI_MAX_MOVES: ${HANOI_MAX_MOVES:-100000}
+    volumes:
+      - ./examples:/data:ro
+  test:
+    build:
+      context: .
+      target: test
+    environment: *settings
