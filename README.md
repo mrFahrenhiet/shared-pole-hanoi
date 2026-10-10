@@ -451,3 +451,9 @@ checks confirm that always skipping, always submitting an illegal action, and
 always selecting A are detected. Deep JSON decoder failures are regression-tested
 by deterministic exception injection; actual 100,000-level input was also checked
 through single-file/stdin and serial/concurrent batch paths.
+
+## AI use disclosure
+
+OpenAI Codex assisted with implementation changes, code review, test improvements,
+and documentation formatting and language improvements. Separate implementation
+and review sessions helped identify gaps in test coverage and detect edge cases.
