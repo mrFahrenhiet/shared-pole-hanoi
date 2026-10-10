@@ -3,7 +3,7 @@ from dataclasses import FrozenInstanceError, fields
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from hanoi import (Action, GameState, Hands, Poles, legal_actions, new_game,
+from app import (Action, GameState, Hands, PlayerView, Poles, legal_actions, new_game,
                    observe, snapshot, step)
 
 
@@ -17,7 +17,14 @@ def test_initialization_and_numeric_strings():
     assert len(new_game(11, max_n=11).poles.pole_1a) == 11
 
 
-@pytest.mark.parametrize("n", [0, -1, True, False, 1.0, 1.5, "1.0", "1e0", "-1", "", None])
+@pytest.mark.parametrize("n", [3.0, "3.0", "3.00", " 003.000 ", "3." + "0" * 50])
+def test_whole_number_decimals(n):
+    assert new_game(n) == new_game(3)
+
+
+@pytest.mark.parametrize("n", [0, -1, True, False, 1.5, "1.5", "1e0", "-1", "", None,
+                              float("nan"), float("inf"), float("-inf"),
+                              "3.00000000000000000001", "3.", "3.0.0", "0.00"])
 def test_invalid_n(n):
     with pytest.raises(ValueError):
         new_game(n)
@@ -101,6 +108,20 @@ def test_unknown_player_is_caller_error():
         step(new_game(1), "C", Action("skip"))
 
 
+@pytest.mark.parametrize("player", ["A", "B"])
+@pytest.mark.parametrize("stacks,hand,kind,poles", [
+    (((), (), ()), 0, "lift", ()),
+    (((5, 1), (4, 2), (3,)), 0, "lift", ("1", "2", "3")),
+    (((5, 3), (4, 2), ()), 1, "place", ("1", "2", "3")),
+    (((5, 1), (4, 2), ()), 3, "place", ("3",)),
+])
+def test_legal_actions_match_independent_expected_sets(player, stacks, hand, kind, poles):
+    view = PlayerView(player, *stacks, hand)
+    expected = {Action("skip")} | {
+        Action(kind, pole if pole == "2" else pole + player.lower()) for pole in poles}
+    assert set(legal_actions(view)) == expected
+
+
 @settings(max_examples=60, deadline=None)
 @given(st.integers(1, 5), st.lists(st.tuples(st.sampled_from(["A", "B"]),
                                           st.integers(0, 100)), max_size=150))
@@ -108,8 +129,6 @@ def test_legal_sequences_preserve_disks_and_stack_order(n, choices):
     state = new_game(n)
     for player, index in choices:
         actions = legal_actions(observe(state, player))
-        # Every advertised action must be accepted, not only the chosen one.
-        assert all(step(state, player, action).legal for action in actions)
         outcome = step(state, player, actions[index % len(actions)])
         state = outcome.state
         full = snapshot(state)

@@ -1,3 +1,4 @@
+name: shared-pole-hanoi
 services:
   app:
     build:

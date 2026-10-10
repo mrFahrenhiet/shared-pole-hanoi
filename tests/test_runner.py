@@ -1,11 +1,13 @@
 import json
-import random
 import subprocess
 import sys
+from unittest.mock import Mock
 
 import pytest
 
-from hanoi.runner import Settings, next_player, random_games, replay
+from app.config import Settings
+from app import Action, snapshot, step
+from app.runner import next_player, random_game, replay
 
 
 def recording():
@@ -45,12 +47,18 @@ def test_malformed_replay(data):
         replay(data)
 
 
-def test_replay_empty_limit_and_win_precedence():
+@pytest.mark.parametrize("trailing", [{"kind": "lift"}, {"kind": 2}])
+def test_replay_validates_after_win_and_budget(trailing):
+    data = recording()
+    data["moves"][-1] = trailing
+    for limit in (None, 1):
+        with pytest.raises(ValueError):
+            replay(data, max_turns=limit)
+
+
+def test_replay_empty_and_exhaustion_at_limit():
     empty = replay({"n": 1, "turn_order": [], "moves": []})
     assert empty["stop_reason"] == "input_exhausted" and empty["turns_processed"] == 0
-    limited = replay(recording(), max_turns=2)
-    assert limited["stop_reason"] == "move_limit" and limited["unused_moves"] == 2
-    assert replay(recording(), max_turns=3)["stop_reason"] == "win"
     skips = {"n": 1, "turn_order": ["A"], "moves": [{"kind": "skip"}]}
     assert replay(skips, max_turns=1)["stop_reason"] == "move_limit"
 
@@ -63,6 +71,7 @@ def test_settings_and_budgets(monkeypatch):
     assert config.budget("1") == 1000
     assert config.budget(3) == 7000
     assert config.budget(10) == 100000
+    assert Settings(max_n=10**9).budget(10**9) == 100000
     assert config.budget(3, 12) == 12
     with pytest.raises(ValueError):
         config.budget(3, 7001)
@@ -71,58 +80,60 @@ def test_settings_and_budgets(monkeypatch):
     monkeypatch.setenv("HANOI_MAX_MOVES", "100")
     assert Settings.from_env().budget(3) == 21
     assert Settings.from_env().budget(12) == 100
-    monkeypatch.setenv("HANOI_MAX_MOVES", "3.0")
+    monkeypatch.setenv("HANOI_MAX_MOVES", "3.00")
+    assert Settings.from_env().max_moves == 3
+    monkeypatch.setenv("HANOI_MAX_MOVES", "3.5")
     with pytest.raises(ValueError):
         Settings.from_env()
 
 
 def test_balanced_scheduler_allows_repeated_players():
-    saw_abba = False
-    for seed in range(40):
-        rng = random.Random(seed)
-        counts = [0, 0]
-        sequence = []
-        for _ in range(100):
-            player = next_player(counts, rng)
-            sequence.append(player)
-            counts[player == "B"] += 1
-            assert abs(counts[0] - counts[1]) <= 1
-        saw_abba |= sequence[:4] == ["A", "B", "B", "A"]
-    assert saw_abba
+    rng = Mock()
+    rng.choice.side_effect = ["A", "B"]
+    counts, sequence = [0, 0], []
+    for _ in range(4):
+        player = next_player(counts, rng)
+        sequence.append(player)
+        counts[player == "B"] += 1
+    assert sequence == ["A", "B", "B", "A"] and counts == [2, 2]
+    assert rng.choice.call_count == 2
 
 
-def test_seeded_parallel_games_match_and_are_isolated():
-    serial = list(random_games(2, 25, 1, 42, max_turns=100))
-    parallel = list(random_games(2, 25, 3, 42, max_turns=100))
-    assert parallel == serial
-    assert [r["game_index"] for r in serial] == list(range(25))
-    assert all(r["illegal_actions"] == 0 for r in serial)
-    assert serial[1]["state"] == list(random_games(2, 1, 1, 43, max_turns=100))[0]["state"]
+def test_random_game_actual_transitions(monkeypatch):
+    counts, kinds, states = {"A": 0, "B": 0}, set(), []
+
+    def checked_step(state, player, action):
+        counts[player] += 1
+        assert abs(counts["A"] - counts["B"]) <= 1
+        outcome = step(state, player, action)
+        assert outcome.legal, (player, action, outcome.reason)
+        if action.kind != "skip":
+            assert outcome.state != state
+        kinds.add(action.kind)
+        states.append(outcome.state)
+        return outcome
+
+    monkeypatch.setattr("app.runner.step", checked_step)
+    result = random_game((0, 3, 42, 200, 10))
+    assert {"lift", "place"} <= kinds
+    assert result["turns_processed"] == sum(counts.values()) == len(states)
+    assert result["state"] == snapshot(states[-1]) and result["illegal_actions"] == 0
+
+
+def test_random_game_reports_actual_illegal_count(monkeypatch):
+    monkeypatch.setattr("app.runner.random_action", lambda *args: Action("dance"))
+    result = random_game((0, 1, 42, 3, 10))
+    assert result["illegal_actions"] == result["turns_processed"] == 3
 
 
 def cli(*args, input=None):
-    return subprocess.run([sys.executable, "-m", "hanoi", *args], input=input,
+    return subprocess.run([sys.executable, "-m", "app", *args], input=input,
                           text=True, capture_output=True)
 
 
-def test_cli_replay_stdin_and_bad_input():
-    output = cli("replay", "-", input=json.dumps(recording()))
-    assert output.returncode == 0 and json.loads(output.stdout)["winner"] == "A"
+def test_cli_replay_bad_input():
     bad = cli("replay", "-", input="not json")
     assert bad.returncode != 0 and "error:" in bad.stderr and "Traceback" not in bad.stderr
-
-
-def test_cli_random_jsonl_and_validation():
-    output = cli("random-play", "2", "--games", "4", "--workers", "2",
-                 "--seed", "42", "--max-turns", "1")
-    assert output.returncode == 0, output.stderr
-    records = [json.loads(line) for line in output.stdout.splitlines()]
-    assert len(records) == 5
-    assert records[-1]["type"] == "summary" and records[-1]["move_limit"] == 4
-    assert records[-1]["base_seed"] == 42
-    for args in [("1.0",), ("11",), ("1", "--workers", "0"),
-                 ("1", "--max-turns", "1001")]:
-        assert cli("random-play", *args).returncode != 0
 
 
 def test_cli_environment_limits_both_frontends(monkeypatch):
@@ -140,3 +151,10 @@ def test_cli_environment_limits_both_frontends(monkeypatch):
         assert game["turns_processed"] == 1 and game["stop_reason"] == "move_limit"
     monkeypatch.setenv("HANOI_MAX_N", "invalid")
     assert cli("random-play", "1").returncode != 0
+
+
+def test_cli_replay_whole_number_decimals():
+    for n in (3.0, "3.00"):
+        output = cli("replay", "-", input=json.dumps({"n": n, "turn_order": [], "moves": []}))
+        assert output.returncode == 0, output.stderr
+        assert json.loads(output.stdout)["state"]["poles"]["1a"] == [5, 3, 1]

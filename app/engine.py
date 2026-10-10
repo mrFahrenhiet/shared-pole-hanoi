@@ -5,14 +5,19 @@ from .schemas import Action, GameState, Player, PlayerView, Poles, StepResult
 
 
 def positive_int(value: object, name: str = "value") -> int:
-    if isinstance(value, str) and value.strip().isascii() and value.strip().isdecimal():
-        value = int(value.strip())
+    if isinstance(value, str):
+        whole, dot, fraction = value.strip().partition(".")
+        if (whole.isascii() and whole.isdecimal()
+                and (not dot or (fraction and not fraction.strip("0")))):
+            value = int(whole)
+    elif type(value) is float and value.is_integer():
+        value = int(value)
     if type(value) is not int or value <= 0:
-        raise ValueError(f"{name} must be a positive integer or decimal integer string")
+        raise ValueError(f"{name} must represent a positive integer")
     return value
 
 
-def new_game(n: int | str, *, max_n: int = 10) -> GameState:
+def new_game(n: int | float | str, *, max_n: int = 10) -> GameState:
     n = positive_int(n, "N")
     if n > positive_int(max_n, "max_n"):
         raise ValueError(f"N must not exceed {max_n}")

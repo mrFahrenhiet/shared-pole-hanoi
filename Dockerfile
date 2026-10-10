@@ -11,11 +11,12 @@ RUN uv sync --locked --no-dev
 FROM base AS runtime
 COPY --from=builder /app/.venv /app/.venv
 COPY pyproject.toml uv.lock ./
-COPY hanoi ./hanoi
-ENTRYPOINT ["uv", "run", "--locked", "--no-sync", "python", "-m", "hanoi"]
+COPY app ./app
+ENTRYPOINT ["uv", "run", "--locked", "--no-sync", "python", "-m", "app"]
 CMD ["--help"]
 
 FROM runtime AS test
 RUN uv sync --locked
 COPY tests ./tests
+COPY examples ./examples
 ENTRYPOINT ["uv", "run", "--locked", "--no-sync", "python", "-m", "pytest"]

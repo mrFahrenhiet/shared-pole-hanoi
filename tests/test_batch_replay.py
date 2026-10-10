@@ -1,11 +1,13 @@
 import json
+from io import StringIO
 from pathlib import Path
 import sys
 
 import pytest
 
-from hanoi.__main__ import main
-from hanoi.runner import Settings, replay, replay_games, worker_count
+from app.__main__ import main
+from app.config import Settings
+from app.runner import replay, replay_games, worker_count
 from test_runner import cli, recording
 
 
@@ -36,6 +38,7 @@ def test_batch_order_isolation_and_serial_parallel_equality(tmp_path):
 
 
 def test_workers_open_files_independently(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.runner.os.process_cpu_count", lambda: 2)
     paths = [save(tmp_path, f"{i}.json", recording()) for i in range(2)]
 
     def forbid_parent_reads(*args, **kwargs):
@@ -43,6 +46,32 @@ def test_workers_open_files_independently(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "read_text", forbid_parent_reads)
     assert all(r["type"] == "game" for r in replay_games(paths, workers=2))
+
+
+def test_json_recursion_failure_isolated_in_batch_and_cli(tmp_path, monkeypatch, capsys):
+    good = save(tmp_path, "good.json", recording())
+    bad = tmp_path / "deep.json"
+    bad.write_text("deep")
+    loads = json.loads
+
+    def decode(source):
+        if source == "deep":
+            raise RecursionError("JSON nesting too deep")
+        return loads(source)
+
+    monkeypatch.setattr(json, "loads", decode)
+    rows = list(replay_games([good, bad, good], workers=1))
+    assert [r["type"] for r in rows] == ["game", "error", "game"]
+    assert rows[0]["winner"] == rows[-1]["winner"] == "A"
+    assert rows[1]["error"] == "JSON nesting too deep"
+    for source in (str(bad), "-"):
+        monkeypatch.setattr(sys, "argv", ["app", "replay", source])
+        monkeypatch.setattr(sys, "stdin", StringIO("deep"))
+        with pytest.raises(SystemExit) as exc:
+            main()
+        output = capsys.readouterr()
+        assert exc.value.code == 2 and not output.out
+        assert "JSON nesting too deep" in output.err and "Traceback" not in output.err
 
 
 def test_cli_batch_errors_continue_and_exit_nonzero(tmp_path):
@@ -88,7 +117,7 @@ def test_single_file_and_stdin_compatibility(tmp_path):
 
 @pytest.mark.parametrize("args", [
     ["-", "file.json"], ["-", "-"], ["-", "--workers", "0"],
-    ["file.json", "--workers", "1.0"], ["-", "--max-turns", "0"],
+    ["file.json", "--workers", "1.5"], ["-", "--max-turns", "0"],
     ["file.json", "other.json", "--max-turns", "-1"],
 ])
 def test_invalid_global_options_fail_before_reading(args, monkeypatch, capsys):
@@ -97,7 +126,7 @@ def test_invalid_global_options_fail_before_reading(args, monkeypatch, capsys):
 
     monkeypatch.setattr(Path, "read_text", forbid_reads)
     monkeypatch.setattr(sys.stdin, "read", forbid_reads)
-    monkeypatch.setattr(sys, "argv", ["hanoi", "replay", *args])
+    monkeypatch.setattr(sys, "argv", ["app", "replay", *args])
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 2
@@ -105,11 +134,14 @@ def test_invalid_global_options_fail_before_reading(args, monkeypatch, capsys):
 
 
 def test_default_and_explicit_worker_counts(monkeypatch):
-    monkeypatch.setattr("hanoi.runner.os.process_cpu_count", lambda: 4)
+    monkeypatch.setattr("app.runner.os.process_cpu_count", lambda: 4)
     assert worker_count(2) == 2
     assert worker_count(8) == 4
     assert worker_count(2, "99") == 2
-    monkeypatch.setattr("hanoi.runner.os.process_cpu_count", lambda: None)
+    assert worker_count(20, "99") == 4
+    assert worker_count(20, "2") == 2
+    monkeypatch.setattr("app.runner.os.process_cpu_count", lambda: None)
     assert worker_count(2) == 1
+    assert worker_count(20, "99") == 1
     with pytest.raises(ValueError):
         worker_count(1, 0)
